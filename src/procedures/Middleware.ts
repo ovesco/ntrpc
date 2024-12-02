@@ -4,7 +4,7 @@ import { Context, Flatten, SchemaHandler, SchemaInferrer } from "../types";
 import { ProcedureCallback } from "./Procedure";
 import { getEnvelopeFromNatsMessage } from "../Envelope";
 import deepmerge from "deepmerge";
-import { RuntimeContext } from "../Runtime";
+import { RuntimeContext } from "../Runner";
 
 export type NextFunctionArgs<Ctx extends Context> = {
   ctx?: Ctx;

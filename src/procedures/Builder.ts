@@ -3,6 +3,7 @@ import { InferNextContext, Middleware, NextFunction } from "./Middleware";
 import { BaseEncoders } from "../encoders";
 import Query from "./Query";
 import Queue from "./Queue";
+import Dispatch from "./Dispatch";
 
 export default class ProcedureBuilder<
   Ctx extends Context,
@@ -43,13 +44,9 @@ export default class ProcedureBuilder<
   }
 
   /**
-   * Returns a middleware-aware stream procedure builder
+   * Returns a middleware-aware dispatch procedure builder
    */
-  get stream() {
-    return new Stream<Ctx, Encoders, "application/json", never, never>(
-      this.getMiddlewareUnwrapper(),
-      undefined,
-      undefined
-    );
+  get dispatch() {
+    return new Dispatch<Ctx, never>(this.middlewares, undefined, undefined);
   }
 }

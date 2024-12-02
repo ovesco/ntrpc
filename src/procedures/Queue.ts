@@ -5,7 +5,7 @@ import deepmerge from "deepmerge";
 import { getDurableName } from "../utils";
 import { NTRPCError } from "../Error";
 import { buildMiddlewaresUnwrapper, Middleware } from "./Middleware";
-import { RuntimeContext } from "../Runtime";
+import { RuntimeContext } from "../Runner";
 import { DataStore } from "../DataStore";
 import { getConsumerInfo, setupStream } from "./jetstream";
 
@@ -70,7 +70,7 @@ export default class Queue<
   Ctx extends Context,
   InputSchema extends SchemaHandler
 > extends Procedure {
-  private subscription: ConsumerMessages;
+  private subscription?: ConsumerMessages;
 
   constructor(
     middlewares: Array<Middleware<any, any>>,
@@ -79,6 +79,10 @@ export default class Queue<
     private config?: Partial<QueueConfig>
   ) {
     super(middlewares);
+  }
+
+  type(): "queue" {
+    return "queue";
   }
 
   input<TInput extends SchemaHandler>(schema: TInput) {
@@ -105,18 +109,21 @@ export default class Queue<
 
   async start(runtimeContext: RuntimeContext, subject: string) {
     const { logger } = runtimeContext.configuration;
-    const config = deepmerge<QueueConfig>(this.config || {}, {
-      streamName: getDurableName(subject),
-      consumerName: `c-${getDurableName(subject)}`,
-      waitForAck: 30000,
-      timeout: 30000,
-      executionRetry: 1,
-      retryDelay: 1000,
-      autoAck: true,
-      consumeOptions: {},
-      allowScheduledMessages: true,
-      dataStore: runtimeContext.dataStore,
-    });
+    const config = deepmerge<QueueConfig>(
+      {
+        streamName: getDurableName(subject),
+        consumerName: `c-${getDurableName(subject)}`,
+        waitForAck: 30000,
+        timeout: 30000,
+        executionRetry: 1,
+        retryDelay: 1000,
+        autoAck: true,
+        consumeOptions: {},
+        allowScheduledMessages: true,
+        dataStore: runtimeContext.dataStore,
+      },
+      this.config || {}
+    );
 
     await setupStream(runtimeContext, config.streamName, subject);
     const consumerInfo = await getConsumerInfo(
@@ -145,7 +152,7 @@ export default class Queue<
             { subject },
             `A message was received without messageId, ignoring it`
           );
-          m.ack();
+          m.term(`missing ${prefix}message-id`);
           continue;
         }
 
@@ -173,12 +180,7 @@ export default class Queue<
         }
 
         // Check if message should be processed
-        const shouldProcess = await this.shouldBeProcessed(
-          runtimeContext,
-          config,
-          messageId
-        );
-
+        const shouldProcess = await this.shouldBeProcessed(config, messageId);
         if (!shouldProcess) {
           m.ack();
           continue;
@@ -191,18 +193,18 @@ export default class Queue<
           );
           await unwrap(m, this.inputSchema, async ({ ctx, envelope }) => {
             // Set message as running
-            await runtimeContext.dataStore.set(
+            await config.dataStore.set(
               this.getDataStoreMessageKey(messageId),
               "RUNNING"
             );
 
             // Increment retry count
-            await this.incrementRetryCount(runtimeContext, messageId);
+            await this.incrementRetryCount(config, messageId);
 
             // Set start execution time
-            await this.setStartExecutionTime(runtimeContext, messageId);
+            await this.setStartExecutionTime(config, messageId);
 
-            await this.resolver!({
+            const res = await this.resolver!({
               ctx: ctx as unknown as Ctx,
               input: envelope.data,
               message: m,
@@ -210,17 +212,23 @@ export default class Queue<
             });
 
             // Set message as executed
-            await runtimeContext.dataStore.set(
+            await config.dataStore.set(
               this.getDataStoreMessageKey(messageId),
               "EXECUTED"
             );
+
+            // Clear store keys
+            await this.clearStoreKeys(config, messageId);
+            return res;
           });
         } catch (error) {
           if (error instanceof NTRPCError && error.code === "INVALID_DATA") {
             runtimeContext.configuration.logger.warn(error);
+            m.term("invalid data");
+            throw error;
           } else {
             // Set message as error
-            await runtimeContext.dataStore.set(
+            await config.dataStore.set(
               this.getDataStoreMessageKey(messageId),
               "ERROR"
             );
@@ -240,12 +248,8 @@ export default class Queue<
     return `job:${messageId}`;
   }
 
-  private async shouldBeProcessed(
-    runtimeContext: RuntimeContext,
-    config: QueueConfig,
-    messageId: string
-  ) {
-    const state = await runtimeContext.dataStore.get<MessageStatus>(
+  private async shouldBeProcessed(config: QueueConfig, messageId: string) {
+    const state = await config.dataStore.get<MessageStatus>(
       this.getDataStoreMessageKey(messageId)
     );
 
@@ -255,7 +259,7 @@ export default class Queue<
 
     if (state === "ERROR") {
       // Check if we're within retry threshold
-      const retryCount = await this.getRetryCount(runtimeContext, messageId);
+      const retryCount = await this.getRetryCount(config, messageId);
       if (retryCount > config.executionRetry) {
         return false;
       }
@@ -265,7 +269,7 @@ export default class Queue<
 
     if (state === "RUNNING") {
       // Check if we're within retry threshold
-      const start = await this.getStartExecutionTime(runtimeContext, messageId);
+      const start = await this.getStartExecutionTime(config, messageId);
       if (!start) {
         // No start time found, we're in a weird state, schedule it again
         return true;
@@ -274,7 +278,7 @@ export default class Queue<
       const now = new Date();
       if (now.getTime() - start.getTime() > config.timeout) {
         // Timeout reached, schedule it again if we're still in retry threshold
-        const retryCount = await this.getRetryCount(runtimeContext, messageId);
+        const retryCount = await this.getRetryCount(config, messageId);
         if (retryCount > config.executionRetry) {
           return false;
         }
@@ -289,46 +293,43 @@ export default class Queue<
     return true;
   }
 
-  private async getRetryCount(
-    runtimeContext: RuntimeContext,
-    messageId: string
-  ) {
-    const count = await runtimeContext.dataStore.get(
+  private async getRetryCount(config: QueueConfig, messageId: string) {
+    const count = await config.dataStore.get(
       `${this.getDataStoreMessageKey(messageId)}-retry`
     );
 
     return count ? parseInt(count) : 0;
   }
 
-  private async incrementRetryCount(
-    runtimeContext: RuntimeContext,
-    messageId: string
-  ) {
-    const count = await this.getRetryCount(runtimeContext, messageId);
-    await runtimeContext.dataStore.set(
+  private async incrementRetryCount(config: QueueConfig, messageId: string) {
+    const count = await this.getRetryCount(config, messageId);
+    await config.dataStore.set(
       `${this.getDataStoreMessageKey(messageId)}-retry`,
       (count + 1).toString()
     );
   }
 
-  private async setStartExecutionTime(
-    runtimeContext: RuntimeContext,
-    messageId: string
-  ) {
-    await runtimeContext.dataStore.set(
+  private async setStartExecutionTime(config: QueueConfig, messageId: string) {
+    await config.dataStore.set(
       `${this.getDataStoreMessageKey(messageId)}-start`,
       new Date().toISOString()
     );
   }
 
-  private async getStartExecutionTime(
-    runtimeContext: RuntimeContext,
-    messageId: string
-  ) {
-    const start = await runtimeContext.dataStore.get<string>(
+  private async getStartExecutionTime(config: QueueConfig, messageId: string) {
+    const start = await config.dataStore.get<string>(
       `${this.getDataStoreMessageKey(messageId)}-start`
     );
 
     return start ? new Date(start) : undefined;
+  }
+
+  private async clearStoreKeys(config: QueueConfig, messageId: string) {
+    await config.dataStore.del(
+      `${this.getDataStoreMessageKey(messageId)}-start`
+    );
+    await config.dataStore.del(
+      `${this.getDataStoreMessageKey(messageId)}-retry`
+    );
   }
 }

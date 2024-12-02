@@ -5,7 +5,7 @@ import { ConsumerOpts, Msg, Subscription } from "nats";
 import Procedure from "./Procedure";
 import { BaseEncoders } from "../encoders";
 import { buildMiddlewaresUnwrapper, Middleware } from "./Middleware";
-import { RuntimeContext } from "../Runtime";
+import { RuntimeContext } from "../Runner";
 import { getDefaultNatsHeaders } from "../Envelope";
 
 export type QueryResolver<
@@ -39,6 +39,10 @@ export default class Query<
     private config?: QueryConfig
   ) {
     super(middlewares);
+  }
+
+  type(): "query" {
+    return "query";
   }
 
   input<TInput extends SchemaHandler>(schema: TInput) {

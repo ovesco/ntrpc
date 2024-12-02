@@ -1,5 +1,5 @@
 import { AckPolicy, nanos } from "nats";
-import { RuntimeContext } from "../Runtime";
+import { RuntimeContext } from "../Runner";
 
 /**
  * Checks if a stream exists for given name or creates it otherwise.

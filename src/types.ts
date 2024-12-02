@@ -23,6 +23,9 @@ export type ContextBuilder<Ctx extends Context = Context> = (
   params: ContextBuilderParams
 ) => Ctx | Promise<Ctx>;
 
+export type InferredContext<Builder extends ContextBuilder> =
+  Builder extends ContextBuilder<infer Ctx> ? Ctx : never;
+
 export type Unwrap<T> = T extends (...args: any[]) => any ? ReturnType<T> : T;
 
 export type FunctionSchemaHandler = (val: unknown) => unknown;
@@ -48,3 +51,9 @@ export type ProcedureHandlerParams<
 export type Flatten<T> = T extends Record<string, any>
   ? { [k in keyof T]: T[k] }
   : never;
+
+export type DeepPartial<T> = T extends object
+  ? {
+      [P in keyof T]?: DeepPartial<T[P]>;
+    }
+  : T;

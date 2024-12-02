@@ -1,6 +1,7 @@
+import { Encoders } from "../encoders";
 import { Envelope } from "../Envelope";
-import { RuntimeContext } from "../Runtime";
-import { Context } from "../types";
+import { RuntimeContext } from "../Runner";
+import { Context, ContextBuilder } from "../types";
 import { Middleware } from "./Middleware";
 
 type ProcedureCallbackArgs<T> = {
@@ -23,13 +24,15 @@ export type ProcedureCallback<T = unknown> = (
 export default abstract class Procedure {
   constructor(protected middlewares: Array<Middleware<any, any>>) {}
 
+  abstract type(): "query" | "queue" | "dispatch";
+
   /**
    * Starts the given procedure
    * @param runtimeContext the runtime context
    * @param subject the subject to listen to
    */
   abstract start(
-    runtimeContext: RuntimeContext,
+    runtimeContext: RuntimeContext<ContextBuilder, Encoders>,
     subject: string
   ): Promise<void>;
 

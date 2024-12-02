@@ -1,4 +1,6 @@
 import { KV, NatsConnection, StringCodec } from "nats";
+import { init } from "./API";
+import { Configuration } from "./Configuration";
 
 /**
  * A DataStore must allow to store and retrieve data in a key-value fashion.
@@ -6,6 +8,11 @@ import { KV, NatsConnection, StringCodec } from "nats";
  * Note that the data store should be persisted on disk in case of crash.
  */
 export interface DataStore {
+  /**
+   * Initialize the data store if necessary
+   */
+  init?(): Promise<void>;
+
   /**
    * Set a value in the data store
    * @param key The key to store the value under
@@ -33,7 +40,21 @@ const codec = StringCodec();
  * A DataStore implementation that uses NATS KV as data store
  */
 export class NatsDataStore implements DataStore {
-  constructor(private kv: KV) {}
+  private _kv: KV | undefined;
+
+  constructor(private nats: NatsConnection, private config: Configuration) {}
+
+  async init() {
+    this._kv = await this.nats.jetstream().views.kv(this.config.instanceId);
+  }
+
+  get kv() {
+    if (!this._kv) {
+      throw new Error("DataStore not initialized");
+    }
+
+    return this._kv;
+  }
 
   async set(key: string, value: string) {
     await this.kv.put(key, codec.encode(value));
