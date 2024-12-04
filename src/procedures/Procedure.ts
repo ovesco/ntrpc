@@ -1,7 +1,6 @@
-import { Encoders } from "../encoders";
 import { Envelope } from "../Envelope";
 import { RuntimeContext } from "../Runner";
-import { Context, ContextBuilder } from "../types";
+import { Context } from "../types";
 import { Middleware } from "./Middleware";
 
 type ProcedureCallbackArgs<T> = {
@@ -32,12 +31,12 @@ export default abstract class Procedure {
    * @param subject the subject to listen to
    */
   abstract start(
-    runtimeContext: RuntimeContext<ContextBuilder, Encoders>,
+    runtimeContext: RuntimeContext,
     subject: string
   ): Promise<void>;
 
   /**
    * Stops the given procedure, clearing any nats listener and freeing up resources
    */
-  abstract stop(): Promise<void>;
+  abstract stop(runtimeContext: RuntimeContext, subject: string): Promise<void>;
 }

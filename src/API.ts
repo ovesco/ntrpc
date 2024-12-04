@@ -1,6 +1,6 @@
 import { DataStore, NatsDataStore } from "./DataStore";
 import { NatsConnection } from "nats";
-import { baseEncoders, BaseEncoders, Encoders } from "./encoders";
+import { BaseEncoders, Encoders } from "./encoders";
 import ProcedureBuilder from "./procedures/Builder";
 import Namespace, { Procedures } from "./Namespace";
 import { ContextBuilder, DeepPartial, InferredContext } from "./types";
@@ -19,7 +19,7 @@ type InferredEncoders<E extends EncodersOrUndefined> = E extends Encoders
   : BaseEncoders;
 
 type BuildRuntimeConfig<
-  N extends Namespace<Procedures>,
+  N extends Namespace,
   CB extends ContextBuilderOrUndefined,
   E extends EncodersOrUndefined
 > = {
@@ -60,7 +60,7 @@ class API<
     return new Namespace(procedures);
   }
 
-  getRunner<N extends Namespace<Procedures>>(
+  getRunner<N extends Namespace>(
     runtimeConfig: BuildRuntimeConfig<N, CB, EU>
   ) {
     const configuration = deepmerge(

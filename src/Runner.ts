@@ -3,6 +3,7 @@ import { Configuration } from "./Configuration";
 import { BaseEncoders, Encoders } from "./encoders";
 import { ContextBuilder } from "./types";
 import { DataStore } from "./DataStore";
+import Namespace, { Procedures } from "./Namespace";
 
 /**
  * The runtime context represents the global context required to run procedures
@@ -24,19 +25,30 @@ export class RuntimeContext<
  * The runtime is the main entry point for the NTRPC framework.
  */
 export default class Runner<
-  N,
+  N extends Namespace,
   C extends ContextBuilder | undefined,
   E extends Encoders | undefined
 > {
   constructor(
     private runtimeContext: RuntimeContext<C, E>,
-    private namespaces: N
+    public readonly namespace: N
   ) {}
 
   /**
    * Starts the runner
    */
   async start() {
-    console.log("Starting runner");
+    const logger = this.runtimeContext.configuration.logger;
+    logger.debug(`Starting nTRPC Runner`);
+    await this.namespace.start(this.runtimeContext as RuntimeContext);
+    logger.info(`nTRPC running`);
+  }
+
+  async stop() {
+    const logger = this.runtimeContext.configuration.logger;
+    logger.debug(`Stopping nTRPC Runner`);
+    await this.namespace.stop(this.runtimeContext as RuntimeContext);
+    logger.info(`nTRPC stopped`);
+
   }
 }

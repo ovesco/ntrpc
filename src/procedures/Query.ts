@@ -27,7 +27,7 @@ export default class Query<
   Ctx extends Context,
   Encoders extends BaseEncoders,
   Encoder extends keyof Encoders = "application/json",
-  InputSchema extends SchemaHandler = never,
+  InputSchema extends SchemaHandler = undefined,
   Resolver extends QueryResolver<Ctx, InputSchema> = never
 > extends Procedure {
   private subscription?: Subscription;

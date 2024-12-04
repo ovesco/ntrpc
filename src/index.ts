@@ -3,75 +3,87 @@ import { init } from "./API";
 import { Encoder } from "./encoders";
 import { NatsConnection } from "nats";
 import { Client } from "./client/Client";
-import Namespace, { Procedures } from "./Namespace";
-import Procedure from "./procedures/Procedure";
+import { NTRPCError } from "./Error";
 
-function ctx() {
+async function contextProvider() {
   return {
     a: 1,
     b: "2",
   };
 }
 
-const yoEncoder: Encoder<String> = {
-  encode: function (data: String): Uint8Array {
-    throw new Error("Function not implemented.");
+const myBasicEncoder: Encoder<Uint8Array> = {
+  encode: function (data: Uint8Array): Uint8Array {
+    return data;
   },
-  decode: function (data: Uint8Array): String {
-    throw new Error("Function not implemented.");
+  decode: function (data: Uint8Array): Uint8Array {
+    return data;
   },
 };
 
-const encoders = { "yo/yo": yoEncoder };
+const encoders = { "hochet/binary": myBasicEncoder };
+const n = init().withContext<typeof contextProvider>().withEncoders<typeof encoders>();
 
-const api = init().withContext<typeof ctx>().withEncoders<typeof encoders>();
-
-const mp = api.procedure.middleware(async ({ ctx, next }) => {
-  console.log("middleware", ctx);
-  return await next({ ctx: { ...ctx, c: 2 } });
+const middleware = n.procedure.middleware(async ({ ctx, next }) => {
+  return await next({ ctx: { ...ctx, hasUser: true } });
 });
 
-const r = api.namespace({
-  yo: mp.dispatch
-    .input(z.object({ yoyo: z.number() }))
-    .resolve(async ({ ctx, input }) => {
-      console.log("query", ctx, input);
+const authMiddleware = middleware.middleware(async ({ ctx, next }) => {
+  if (!ctx.hasUser) {
+    throw new NTRPCError("INVALID_REQUEST", "No user found");
+  }
+
+  return await next({ ctx: { ...ctx, middlewareData: true, userId: 10 } });
+});
+
+const authNamespace = n.namespace({
+  getProfilePicture: authMiddleware.query
+  .responseEncoding("hochet/binary")
+  .resolve(async () => {
+    return new Uint8Array();
+  }),
+
+  setUsername: authMiddleware.query
+    .input(z.object({ username: z.string() }))
+    .resolve(async ({ ctx, input, envelope }) => {
+      const time = envelope.time;
+      const userId = ctx.userId;
+      // Do some update
+      return { username: input.username, userId: ctx.userId };
     }),
-  yo3: mp.query
-    .input(z.object({ yoyo: z.number() }))
-    .resolve(async ({ ctx, input }) => {
-      console.log("query", ctx, input);
-      return { a: 1 };
+  disconnect: authMiddleware.dispatch
+    .resolve(async ({ ctx }) => {
+      // Do something
     }),
 });
 
-const rb = api.namespace({
-  r,
-  yo2: mp.query
-    .input(z.object({ yoyo: z.number() }))
-    // .responseEncoding("yo/yo")
-    .resolve(async ({ ctx, input }) => {
-      console.log("query", ctx, input);
-      return { a: 1 };
+const globalNamespace = n.namespace({
+  auth: authNamespace,
+
+  setLogo: middleware.queue
+    .input(z.instanceof(Uint8Array))
+    .resolve(async ({ input }) => {
+      // Do something with the binary
     }),
 });
 
-const runner = api.getRunner({
+const runner = n.getRunner({
   nats: null as unknown as NatsConnection,
   encoders,
-  namespace: rb,
-  contextBuilder: ctx,
+  namespace: globalNamespace,
+  contextBuilder: contextProvider,
 });
-
-runner.start();
 
 const client = new Client<typeof runner>({
   nats: null as unknown as NatsConnection,
   encoders,
 });
 
-type A = typeof rb;
 
-type InferProcedureType<T extends Procedure> = ReturnType<T["type"]>;
+const userData = client.query('auth.setUsername', { username: 'hochetus' });
+const profilePicBinary = client.query('auth.getProfilePicture');
 
-type B = InferProcedureType<A["procedures"]["yo2"]>;
+// Note as we do not need to provide a payload argument here
+client.dispatch('auth.disconnect');
+
+client.queue('setLogo', new Uint8Array());
