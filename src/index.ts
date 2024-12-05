@@ -22,8 +22,11 @@ const myBasicEncoder: Encoder<Uint8Array> = {
 };
 
 const encoders = { "hochet/binary": myBasicEncoder };
-const n = init().withContext<typeof contextProvider>().withEncoders<typeof encoders>();
+const n = init()
+  .withContext<typeof contextProvider>()
+  .withEncoders<typeof encoders>();
 
+/* --- middlewares --- */
 const middleware = n.procedure.middleware(async ({ ctx, next }) => {
   return await next({ ctx: { ...ctx, hasUser: true } });
 });
@@ -38,10 +41,10 @@ const authMiddleware = middleware.middleware(async ({ ctx, next }) => {
 
 const authNamespace = n.namespace({
   getProfilePicture: authMiddleware.query
-  .responseEncoding("hochet/binary")
-  .resolve(async () => {
-    return new Uint8Array();
-  }),
+    .responseEncoding("hochet/binary")
+    .resolve(async () => {
+      return new Uint8Array();
+    }),
 
   setUsername: authMiddleware.query
     .input(z.object({ username: z.string() }))
@@ -51,10 +54,9 @@ const authNamespace = n.namespace({
       // Do some update
       return { username: input.username, userId: ctx.userId };
     }),
-  disconnect: authMiddleware.dispatch
-    .resolve(async ({ ctx }) => {
-      // Do something
-    }),
+  disconnect: authMiddleware.dispatch.resolve(async ({ ctx }) => {
+    // Do something
+  }),
 });
 
 const globalNamespace = n.namespace({
@@ -74,18 +76,18 @@ const runner = n.getRunner({
   contextBuilder: contextProvider,
 });
 
+/* --- Client --- */
 const client = new Client<typeof runner>({
   nats: null as unknown as NatsConnection,
   encoders,
 });
 
-
-const userData = client.query('auth.setUsername', { username: 'hochetus' });
-const profilePicBinary = client.query('auth.getProfilePicture', {
-  encoding: ''
+const userData = client.query("auth.setUsername", { username: "hochetus" });
+const profilePicBinary = client.query("auth.getProfilePicture", {
+  encoding: "application/octet-stream",
 });
 
 // Note as we do not need to provide a payload argument here
-client.dispatch('auth.disconnect');
+client.dispatch("auth.disconnect");
 
-client.queue('setLogo', new Uint8Array());
+client.queue("setLogo", new Uint8Array());
