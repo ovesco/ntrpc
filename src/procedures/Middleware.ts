@@ -4,7 +4,7 @@ import { Context, Flatten, SchemaHandler, SchemaInferrer } from "../types";
 import { ProcedureCallback } from "./Procedure";
 import { getEnvelopeFromNatsMessage } from "../Envelope";
 import deepmerge from "deepmerge";
-import { RuntimeContext } from "../Runner";
+import { RunnerContext } from "../Runner";
 
 export type NextFunctionArgs<Ctx extends Context> = {
   ctx?: Ctx;
@@ -50,12 +50,12 @@ export type Middleware<Ctx extends Context, Next extends NextFunction> = (
 
 /**
  * Returns a function that unwraps the middlewares and executes the procedure action
- * @param RuntimeContext the runtime context
+ * @param runnerContext
  * @param middlewares the middlewares to unwrap
  * @returns a function that unwraps the middlewares and executes the procedure action
  */
 export function buildMiddlewaresUnwrapper(
-  runtimeContext: RuntimeContext,
+  runnerContext: RunnerContext,
   middlewares: Array<Middleware<any, any>>
 ) {
   return async function <
@@ -67,7 +67,8 @@ export function buildMiddlewaresUnwrapper(
     callback: ProcedureCallback<SchemaInferrer<InputSchema>>
   ) {
     const envelope = getEnvelopeFromNatsMessage(
-      runtimeContext,
+      runnerContext.configuration,
+      runnerContext.encoders,
       message,
       inputSchema
     );
@@ -114,7 +115,7 @@ export function buildMiddlewaresUnwrapper(
       return await current({ next, ctx });
     }
 
-    const baseCtx = await runtimeContext.contextBuilder({
+    const baseCtx = await runnerContext.contextBuilder({
       message,
       envelope,
     });

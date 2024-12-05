@@ -1,5 +1,5 @@
 import { Envelope } from "../Envelope";
-import { RuntimeContext } from "../Runner";
+import { RunnerContext } from "../Runner";
 import { Context } from "../types";
 import { Middleware } from "./Middleware";
 
@@ -27,16 +27,16 @@ export default abstract class Procedure {
 
   /**
    * Starts the given procedure
-   * @param runtimeContext the runtime context
+   * @param runnerContext the runtime context
    * @param subject the subject to listen to
    */
   abstract start(
-    runtimeContext: RuntimeContext,
+    runnerContext: RunnerContext,
     subject: string
   ): Promise<void>;
 
   /**
    * Stops the given procedure, clearing any nats listener and freeing up resources
    */
-  abstract stop(runtimeContext: RuntimeContext, subject: string): Promise<void>;
+  abstract stop(runnerContext: RunnerContext, subject: string): Promise<void>;
 }

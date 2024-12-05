@@ -8,7 +8,7 @@ import Namespace, { Procedures } from "./Namespace";
 /**
  * The runtime context represents the global context required to run procedures
  */
-export class RuntimeContext<
+export class RunnerContext<
   C extends ContextBuilder | undefined = ContextBuilder,
   E extends Encoders | undefined = Encoders
 > {
@@ -30,7 +30,7 @@ export default class Runner<
   E extends Encoders | undefined
 > {
   constructor(
-    private runtimeContext: RuntimeContext<C, E>,
+    private runtimeContext: RunnerContext<C, E>,
     public readonly namespace: N
   ) {}
 
@@ -40,14 +40,14 @@ export default class Runner<
   async start() {
     const logger = this.runtimeContext.configuration.logger;
     logger.debug(`Starting nTRPC Runner`);
-    await this.namespace.start(this.runtimeContext as RuntimeContext);
+    await this.namespace.start(this.runtimeContext as RunnerContext);
     logger.info(`nTRPC running`);
   }
 
   async stop() {
     const logger = this.runtimeContext.configuration.logger;
     logger.debug(`Stopping nTRPC Runner`);
-    await this.namespace.stop(this.runtimeContext as RuntimeContext);
+    await this.namespace.stop(this.runtimeContext as RunnerContext);
     logger.info(`nTRPC stopped`);
 
   }

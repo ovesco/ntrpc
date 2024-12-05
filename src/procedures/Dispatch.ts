@@ -4,7 +4,7 @@ import { NTRPCError } from "../Error";
 import { ConsumerOpts, Msg, Subscription } from "nats";
 import Procedure from "./Procedure";
 import { buildMiddlewaresUnwrapper, Middleware } from "./Middleware";
-import { RuntimeContext } from "../Runner";
+import { RunnerContext } from "../Runner";
 
 export type DispatchResolver<
   Ctx extends Context,
@@ -73,7 +73,7 @@ export default class Dispatch<
     return await this.subscription?.drain();
   }
 
-  async start(runtimeContext: RuntimeContext, subject: string) {
+  async start(runnerContext: RunnerContext, subject: string) {
     if (!this.resolver) {
       throw new NTRPCError(
         "INTERNAL_ERROR",
@@ -81,7 +81,7 @@ export default class Dispatch<
       );
     }
 
-    const sub = runtimeContext.nats.subscribe(subject, this.config?.opts);
+    const sub = runnerContext.nats.subscribe(subject, this.config?.opts);
     this.subscription = sub;
 
     (async () => {
@@ -89,7 +89,7 @@ export default class Dispatch<
         // Unwrap middlewares
         try {
           const unwrap = buildMiddlewaresUnwrapper(
-            runtimeContext,
+            runnerContext,
             this.middlewares
           );
           await unwrap(m, this.inputSchema, async ({ ctx, envelope }) => {
@@ -104,7 +104,7 @@ export default class Dispatch<
           });
         } catch (error) {
           if (error instanceof NTRPCError && error.code === "INVALID_DATA") {
-            runtimeContext.configuration.logger.info(error);
+            runnerContext.configuration.logger.info(error);
           } else {
             // Forward down
             throw error;

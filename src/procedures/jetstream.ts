@@ -1,28 +1,28 @@
 import { AckPolicy, nanos } from "nats";
-import { RuntimeContext } from "../Runner";
+import { RunnerContext } from "../Runner";
 
 /**
  * Checks if a stream exists for given name or creates it otherwise.
  * Checks that the stream includes the given subject or adds it otherwise.
- * @param runtimeContext the runtime context
+ * @param runnerContext
  * @param name the name of the stream
  * @param subject the subject to add to the stream
  */
 export async function setupStream(
-  runtimeContext: RuntimeContext,
+  runnerContext: RunnerContext,
   name: string,
   subject: string
 ) {
-  const jsm = await runtimeContext.nats.jetstreamManager();
+  const jsm = await runnerContext.nats.jetstreamManager();
   let foundStream = false;
   for await (const stream of jsm.streams.list()) {
     if (stream.config.name === name) {
       foundStream = true;
       // Found stream, update subject if necessary
       if (stream.config.subjects.includes(subject)) {
-        runtimeContext.configuration.logger.debug("Stream already has subject");
+        runnerContext.configuration.logger.debug("Stream already has subject");
       } else {
-        runtimeContext.configuration.logger.debug("Adding subject to stream");
+        runnerContext.configuration.logger.debug("Adding subject to stream");
         await jsm.streams.update(name, {
           subjects: [...stream.config.subjects, subject],
         });
@@ -33,12 +33,12 @@ export async function setupStream(
   }
 
   if (!foundStream) {
-    runtimeContext.configuration.logger.debug("Stream not found, creating it");
+    runnerContext.configuration.logger.debug("Stream not found, creating it");
     await jsm.streams.add({
       name,
       subjects: [subject],
     });
-    runtimeContext.configuration.logger.debug("Stream created");
+    runnerContext.configuration.logger.debug("Stream created");
   }
 }
 
@@ -47,7 +47,7 @@ export async function setupStream(
  * If the consumer does not exist, it is created.
  * This consumer can then be shared among various instances to track
  * the stream and process messages without duplicates
- * @param runtimeContext the runtime context
+ * @param runnerContext
  * @param stream the stream to get the consumer from
  * @param name the name of the consumer
  * @param subject the subject to filter messages on
@@ -55,15 +55,15 @@ export async function setupStream(
  * @returns the consumer
  */
 export async function getConsumerInfo(
-  runtimeContext: RuntimeContext,
+  runnerContext: RunnerContext,
   stream: string,
   name: string,
   subject: string,
   timeout: number
 ) {
-  const logger = runtimeContext.configuration.logger;
+  const logger = runnerContext.configuration.logger;
   logger.debug("Setup consumer start");
-  const jsm = await runtimeContext.nats.jetstreamManager();
+  const jsm = await runnerContext.nats.jetstreamManager();
 
   for await (const consumer of jsm.consumers.list(stream)) {
     if (consumer.config.name === name) {

@@ -5,7 +5,7 @@ import deepmerge from "deepmerge";
 import { getDurableName } from "../utils";
 import { NTRPCError } from "../Error";
 import { buildMiddlewaresUnwrapper, Middleware } from "./Middleware";
-import { RuntimeContext } from "../Runner";
+import { RunnerContext } from "../Runner";
 import { DataStore } from "../DataStore";
 import { getConsumerInfo, setupStream } from "./jetstream";
 
@@ -107,8 +107,8 @@ export default class Queue<
     await this.subscription?.close();
   }
 
-  async start(runtimeContext: RuntimeContext, subject: string) {
-    const { logger } = runtimeContext.configuration;
+  async start(runnerContext: RunnerContext, subject: string) {
+    const { logger } = runnerContext.configuration;
     const config = deepmerge<QueueConfig>(
       {
         streamName: getDurableName(subject),
@@ -120,21 +120,21 @@ export default class Queue<
         autoAck: true,
         consumeOptions: {},
         allowScheduledMessages: true,
-        dataStore: runtimeContext.dataStore,
+        dataStore: runnerContext.dataStore,
       },
       this.config || {}
     );
 
-    await setupStream(runtimeContext, config.streamName, subject);
+    await setupStream(runnerContext, config.streamName, subject);
     const consumerInfo = await getConsumerInfo(
-      runtimeContext,
+      runnerContext,
       config.streamName,
       config.consumerName,
       subject,
       config.waitForAck
     );
 
-    const consumer = await runtimeContext.nats
+    const consumer = await runnerContext.nats
       .jetstream()
       .consumers.get(config.streamName, consumerInfo.name);
 
@@ -143,7 +143,7 @@ export default class Queue<
 
     (async () => {
       for await (const m of subscription) {
-        const prefix = runtimeContext.configuration.natsHeadersPrefix;
+        const prefix = runnerContext.configuration.natsHeadersPrefix;
         const scheduledAt = m.headers?.get(`${prefix}scheduledAt`);
         const messageId = m.headers?.get(`${prefix}message-id`);
 
@@ -170,7 +170,7 @@ export default class Queue<
               // Requeue the message
               // Nats expects delay to be specified in milliseconds
               m.nak(scheduledTime.getTime() - Date.now());
-              runtimeContext.dataStore.set(
+              runnerContext.dataStore.set(
                 this.getDataStoreMessageKey(messageId),
                 "SCHEDULED"
               );
@@ -188,7 +188,7 @@ export default class Queue<
 
         try {
           const unwrap = buildMiddlewaresUnwrapper(
-            runtimeContext,
+            runnerContext,
             this.middlewares
           );
           await unwrap(m, this.inputSchema, async ({ ctx, envelope }) => {
@@ -223,7 +223,7 @@ export default class Queue<
           });
         } catch (error) {
           if (error instanceof NTRPCError && error.code === "INVALID_DATA") {
-            runtimeContext.configuration.logger.warn(error);
+            runnerContext.configuration.logger.warn(error);
             m.term("invalid data");
             throw error;
           } else {

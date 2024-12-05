@@ -10,7 +10,8 @@ import {
 import { headers, JsMsg, Msg } from "nats";
 import { nanoid } from "nanoid";
 import { NTRPCError } from "./Error";
-import { RuntimeContext } from "./Runner";
+import { RunnerContext } from "./Runner";
+import { Encoders } from "./encoders";
 
 /**
  * An envelope wraps the data sent over the network, following the Cloud event
@@ -47,16 +48,27 @@ export interface Envelope<T = never> {
   type: string;
 
   /**
-   * THe mime type for the content of this envelope
+   * The envelope's payload decoded according to the dataContentType
+   */
+  data: T;
+
+  /**
+   * Represents an eventual status attached to the envelope, used for example
+   * when sending a response to a query request.
+   * If the status is an error, the payload must be an NTRPCError
+   */
+  status?: 'success' | 'error';
+
+  /**
+   * The mime type for the content of this envelope
    * By default is application/json
    */
   datacontenttype: `${string}/${string}`;
-  time: string; // ISO 8601 date without timezone
 
   /**
-   * Actual data payload, encoded accordingly to the datacontenttype
+   * ISO 8601 date without timezone
    */
-  data: T;
+  time: string;
 }
 
 export const EnvelopeSchema = z.object({
@@ -69,6 +81,7 @@ export const EnvelopeSchema = z.object({
     message: "datacontenttype must be a valid mime type",
   }),
   time: z.string().datetime(),
+  status: z.union([z.literal('success'), z.literal('error')]).optional(),
 });
 
 /**
@@ -83,7 +96,8 @@ export function getDefaultNatsHeaders(
   config: Configuration,
   type: string,
   contentType: `${string}/${string}`,
-  parentId?: NanoID
+  parentId?: NanoID,
+  status?: 'success' | 'error',
 ) {
   const h = headers();
   const prefix = config.natsHeadersPrefix;
@@ -91,6 +105,10 @@ export function getDefaultNatsHeaders(
 
   if (parentId) {
     h.append(`${prefix}parent-id`, parentId);
+  }
+
+  if (status) {
+    h.append(`${prefix}status`, status);
   }
 
   h.append(`${prefix}source`, config.instanceId);
@@ -112,23 +130,24 @@ export function getDefaultNatsHeaders(
 export function getEnvelopeFromNatsMessage<
   S extends SchemaHandler,
   T extends SchemaInferrer<S>
->(runtimeContext: RuntimeContext, msg: Msg | JsMsg, schema: S): Envelope<T> {
+>(configuration: Configuration, encoders: Encoders, msg: Msg | JsMsg, schema?: S): Envelope<T> {
   const headers = msg.headers;
   if (!headers) {
     throw new Error("No headers found on message");
   }
 
-  const prefix = runtimeContext.configuration.natsHeadersPrefix;
+  const prefix = configuration.natsHeadersPrefix;
   const datacontenttype = headers.get(
     `${prefix}datacontenttype`
   ) as `${string}/${string}`;
 
-  if (!Object.keys(runtimeContext.encoders).includes(datacontenttype)) {
+  if (!Object.keys(encoders).includes(datacontenttype)) {
     throw new NTRPCError(
       "INVALID_DATA",
       `No encoder can handle received envelope of type ${datacontenttype}`
     );
   }
+
 
   const envelope = {
     subject: msg.subject,
@@ -140,10 +159,13 @@ export function getEnvelopeFromNatsMessage<
     specversion: headers.get(
       `${prefix}specversion`
     ) as Envelope<T>["specversion"],
+    status: headers.has(`${prefix}status`) 
+      ? headers.get(`${prefix}status`) as Envelope<T>["status"]
+      : undefined,
     type: headers.get(`${prefix}type`),
     time: headers.get(`${prefix}time`),
     datacontenttype,
-    data: runtimeContext.encoders[datacontenttype].decode(msg.data) as T,
+    data: encoders[datacontenttype].decode(msg.data) as T,
   };
 
   validate<S>(envelope, schema);
@@ -198,7 +220,7 @@ function validateFunctionSchema<S extends FunctionSchemaHandler>(
  */
 export function validate<S extends SchemaHandler>(
   envelope: Envelope<SchemaInferrer<S>>,
-  payloadSchema: S
+  payloadSchema?: S
 ) {
   if (!payloadSchema) {
     return validateZodSchema(envelope, z.any());

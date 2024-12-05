@@ -1,6 +1,6 @@
-import { ERROR_CODES, NTRPCError } from "./Error";
+import { NTRPCError } from "./Error";
 import Procedure from "./procedures/Procedure";
-import { RuntimeContext } from "./Runner";
+import { RunnerContext } from "./Runner";
 
 // A namespace is a collection of procedures under the same name
 // A namespace can contain other namespaces
@@ -44,7 +44,7 @@ export default class Namespace<P extends Procedures = Procedures> {
     );
   }
 
-  async start(context: RuntimeContext, currPath: string[] = []) {
+  async start(context: RunnerContext, currPath: string[] = []) {
     for (const key in this.procedures) {
       const element = this.procedures[key];
       if (element instanceof Namespace) {
@@ -56,7 +56,7 @@ export default class Namespace<P extends Procedures = Procedures> {
     }
   }
 
-  async stop(context: RuntimeContext, currPath: string[] = []) {
+  async stop(context: RunnerContext, currPath: string[] = []) {
     const subject = currPath.join(".");
     context.configuration.logger.info(`Stopping namespace at [${subject}]`);
     for (const key in this.procedures) {

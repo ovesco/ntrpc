@@ -1,11 +1,11 @@
 import deepmerge from "deepmerge";
-import { Context, ProcedureHandlerParams, SchemaHandler } from "../types";
+import { Context, NanoID, ProcedureHandlerParams, SchemaHandler } from "../types";
 import { NTRPCError } from "../Error";
 import { ConsumerOpts, Msg, Subscription } from "nats";
 import Procedure from "./Procedure";
 import { BaseEncoders } from "../encoders";
 import { buildMiddlewaresUnwrapper, Middleware } from "./Middleware";
-import { RuntimeContext } from "../Runner";
+import { RunnerContext } from "../Runner";
 import { getDefaultNatsHeaders } from "../Envelope";
 
 export type QueryResolver<
@@ -24,8 +24,8 @@ type QueryConfig = {
  * to the client.
  */
 export default class Query<
-  Ctx extends Context,
-  Encoders extends BaseEncoders,
+  Ctx extends Context = any,
+  Encoders extends BaseEncoders = any,
   Encoder extends keyof Encoders = "application/json",
   InputSchema extends SchemaHandler = undefined,
   Resolver extends QueryResolver<Ctx, InputSchema> = never
@@ -90,7 +90,7 @@ export default class Query<
     return await this.subscription?.drain();
   }
 
-  async start(runtimeContext: RuntimeContext, subject: string) {
+  async start(runnerContext: RunnerContext, subject: string) {
     if (!this.resolver) {
       throw new NTRPCError(
         "INTERNAL_ERROR",
@@ -98,7 +98,7 @@ export default class Query<
       );
     }
 
-    const sub = runtimeContext.nats.subscribe(subject, this.config?.opts);
+    const sub = runnerContext.nats.subscribe(subject, this.config?.opts);
     this.subscription = sub;
 
     (async () => {
@@ -107,7 +107,7 @@ export default class Query<
         if (!replySubject) {
           // Nothing more to do we have nowhere to send
           // the reply to
-          runtimeContext.configuration.logger.info({
+          runnerContext.configuration.logger.info({
             subject,
             message: "No reply subject set",
           });
@@ -118,9 +118,10 @@ export default class Query<
         // Unwrap middlewares
         try {
           const unwrap = buildMiddlewaresUnwrapper(
-            runtimeContext,
+            runnerContext,
             this.middlewares
           );
+
           await unwrap(m, this.inputSchema, async ({ ctx, envelope }) => {
             const res = await this.resolver!({
               ctx: ctx as unknown as Ctx,
@@ -133,37 +134,63 @@ export default class Query<
             const encoding =
               this.config?.responseEncoding || "application/json";
             const replyHeaders = getDefaultNatsHeaders(
-              runtimeContext.configuration,
+              runnerContext.configuration,
               subject,
               encoding,
-              envelope.id
+              envelope.id,
+              'success',
             );
 
-            const { encoders } = runtimeContext;
+            const { encoders } = runnerContext;
             const encoder = encoders[encoding as keyof typeof encoders];
             if (!encoder) {
-              throw new NTRPCError(
+              const error = new NTRPCError(
                 "UNKNOWN_ENCODER",
                 `Unknown encoder ${encoding} when trying to send response back`
               );
+
+              this.replyError(runnerContext, replySubject, envelope.id, error);
+              throw error;
             }
 
             // Send response
-            runtimeContext.nats.publish(
+            runnerContext.nats.publish(
               replySubject,
               encoder.encode(res as any),
               { headers: replyHeaders }
             );
           });
         } catch (error) {
-          if (error instanceof NTRPCError && error.code === "INVALID_DATA") {
-            runtimeContext.configuration.logger.info(error);
+          if (error instanceof NTRPCError) {
+            this.replyError(runnerContext, replySubject, undefined, error);
+            if (error.code === "INVALID_DATA") {
+              runnerContext.configuration.logger.info(error);
+            } else {
+              throw error;
+            }
           } else {
             // Forward down
+            this.replyError(runnerContext, replySubject, undefined, new NTRPCError("INTERNAL_ERROR", "Internal error", error));
             throw error;
           }
         }
       }
     })();
+  }
+
+  private replyError(runnerContext: RunnerContext, subject: string, parentId: NanoID | undefined, error: NTRPCError) {
+    const headers = getDefaultNatsHeaders(
+      runnerContext.configuration,
+      subject,
+      "application/json",
+      parentId,
+      'error',
+    );
+
+    runnerContext.nats.publish(
+      subject,
+      runnerContext.encoders['application/json'].encode(error),
+      { headers }
+    );
   }
 }

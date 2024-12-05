@@ -81,7 +81,9 @@ const client = new Client<typeof runner>({
 
 
 const userData = client.query('auth.setUsername', { username: 'hochetus' });
-const profilePicBinary = client.query('auth.getProfilePicture');
+const profilePicBinary = client.query('auth.getProfilePicture', {
+  encoding: ''
+});
 
 // Note as we do not need to provide a payload argument here
 client.dispatch('auth.disconnect');

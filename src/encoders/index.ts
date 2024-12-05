@@ -13,7 +13,8 @@ export interface Encoder<T> {
   decode(data: Uint8Array): T;
 }
 
-export type Encoders = Record<`${string}/${string}`, Encoder<unknown>>;
+export type EncoderMime = `${string}/${string}`
+export type Encoders = Record<EncoderMime, Encoder<unknown>>;
 
 const baseEncoders = {
   "application/json": JSONEncoder,
